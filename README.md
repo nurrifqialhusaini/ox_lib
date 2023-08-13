@@ -1,22 +1,27 @@
-<div align='center'><h1><a href='https://overextended.github.io/docs/'>Documentation</a></h3></div>
-<br>
+# ox_lib
 
-## Lua Library for FiveM
+A FiveM library and resource implementing reusable modules, methods, and UI elements.
 
-FXServer provides its own system for including files, which we use to load this resource in the fxmanifest via
+![](https://img.shields.io/github/downloads/overextended/ox_lib/total?logo=github)
+![](https://img.shields.io/github/downloads/overextended/ox_lib/latest/total?logo=github)
+![](https://img.shields.io/github/contributors/overextended/ox_lib?logo=github)
+![](https://img.shields.io/github/v/release/overextended/ox_lib?logo=github) 
 
-```lua
-shared_script '@ox_lib/init.lua'
-```
+## 📚 Documentation
 
-### server.cfg
+https://overextended.dev/ox_lib
 
-```
-add_ace resource.ox_lib command.add_ace allow
-add_ace resource.ox_lib command.remove_ace allow
-add_ace resource.ox_lib command.add_principal allow
-add_ace resource.ox_lib command.remove_principal allow
-```
+## 💾 Download
 
-## License
-<a href='https://www.gnu.org/licenses/lgpl-3.0.en.html'>LGPL-3.0-or-later</a>
+https://github.com/overextended/ox_lib/releases/latest/download/ox_lib.zip
+
+## npm Package
+
+https://www.npmjs.com/package/@overextended/ox_lib
+
+## Lua Language Server
+
+- Install [Lua Language Server](https://marketplace.visualstudio.com/items?itemName=sumneko.lua) to ease development with annotations, type checking, diagnostics, and more.
+- Install [cfxlua-vscode](https://marketplace.visualstudio.com/items?itemName=overextended.cfxlua-vscode) to add natives and cfxlua runtime declarations to LLS.
+- You can load ox_lib into your global development environment by modifying workspace/user settings "Lua.workspace.library" with the resource path.
+  - e.g. "c:/fxserver/resources/ox_lib"

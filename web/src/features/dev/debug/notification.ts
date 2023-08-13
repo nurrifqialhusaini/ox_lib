@@ -1,30 +1,42 @@
-import { CustomNotificationProps, NotificationProps } from '../../notifications/NotificationWrapper';
+import { NotificationProps } from '../../../typings';
 import { debugData } from '../../../utils/debugData';
 
-export const debugNotification = () => {
+export const debugCustomNotification = () => {
   debugData<NotificationProps>([
     {
       action: 'notify',
       data: {
-        description: 'Dunak is nerd',
-        title: 'Dunak',
-        id: 1,
+        title: 'Success',
+        description: 'Notification description',
+        type: 'success',
+        id: 'pogchamp',
+        duration: 20000,
+        style: {
+          '.description': {
+            color: 'red',
+          },
+        },
       },
     },
   ]);
-};
-
-export const debugCustomNotification = () => {
-  debugData<CustomNotificationProps>([
+  debugData<NotificationProps>([
     {
-      action: 'customNotify',
+      action: 'notify',
       data: {
-        description: 'Dunak is nerd',
-        icon: 'basket-shopping',
-        style: {
-          backgroundColor: '#2D3748',
-          color: 'white',
-        },
+        title: 'Error',
+        description: 'Notification description',
+        type: 'error',
+      },
+    },
+  ]);
+  debugData<NotificationProps>([
+    {
+      action: 'notify',
+      data: {
+        title: 'Custom icon success',
+        description: 'Notification description',
+        type: 'success',
+        icon: 'microchip',
       },
     },
   ]);

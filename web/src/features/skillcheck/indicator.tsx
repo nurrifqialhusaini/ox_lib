@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
-import { useKeyPress } from '../../hooks/useKeyPress';
-import { SkillCheckProps } from './index';
-import { useInterval } from '@chakra-ui/react';
+import { useCallback, useEffect, useState } from 'react';
+import type { SkillCheckProps } from '../../typings';
+import { useInterval } from '@mantine/hooks';
 import { circleCircumference } from './index';
 
 interface Props {
@@ -9,55 +8,64 @@ interface Props {
   offset: number;
   multiplier: number;
   skillCheck: SkillCheckProps;
+  className: string;
   handleComplete: (success: boolean) => void;
 }
 
-const Indicator: React.FC<Props> = ({ angle, offset, multiplier, handleComplete, skillCheck }) => {
+const Indicator: React.FC<Props> = ({ angle, offset, multiplier, handleComplete, skillCheck, className }) => {
   const [indicatorAngle, setIndicatorAngle] = useState(-90);
-  const [gameState, setGameState] = useState(false);
-  const isKeyPressed = useKeyPress('e');
-
-  useInterval(
-    () => {
+  const [keyPressed, setKeyPressed] = useState<false | string>(false);
+  const interval = useInterval(
+    () =>
       setIndicatorAngle((prevState) => {
         return (prevState += multiplier);
-      });
+      }),
+    1
+  );
+
+  const keyHandler = useCallback(
+    (e: KeyboardEvent) => {
+      setKeyPressed(e.key.toLowerCase());
     },
-    gameState ? 1 : null
+    [skillCheck]
   );
 
   useEffect(() => {
     setIndicatorAngle(-90);
-    setGameState(true);
+    window.addEventListener('keydown', keyHandler);
+    interval.start();
   }, [skillCheck]);
 
   useEffect(() => {
     if (indicatorAngle + 90 >= 360) {
-      setGameState(false);
+      interval.stop();
       handleComplete(false);
     }
   }, [indicatorAngle]);
 
   useEffect(() => {
-    if (!isKeyPressed) return;
+    if (!keyPressed) return;
 
-    setGameState(false);
+    interval.stop();
 
-    if (indicatorAngle < angle || indicatorAngle > angle + offset) handleComplete(false);
+    window.removeEventListener('keydown', keyHandler);
+
+    if (keyPressed !== skillCheck.key.toLowerCase() || indicatorAngle < angle || indicatorAngle > angle + offset)
+      handleComplete(false);
     else handleComplete(true);
-  }, [isKeyPressed]);
+
+    setKeyPressed(false);
+  }, [keyPressed]);
 
   return (
     <circle
       r={50}
       cx={250}
       cy={250}
-      fill="transparent"
-      stroke="red"
-      strokeWidth={15}
       strokeDasharray={circleCircumference}
       strokeDashoffset={circleCircumference - 3}
       transform={`rotate(${indicatorAngle}, 250, 250)`}
+      className={className}
     />
   );
 };

@@ -3,6 +3,7 @@ if cache.game == 'redm' then return end
 ---@class KeybindProps
 ---@field name string
 ---@field description string
+---@field defaultMapper? string (see: https://docs.fivem.net/docs/game-references/input-mapper-parameter-ids/)
 ---@field defaultKey? string
 ---@field disabled? boolean
 ---@field disable? fun(self: CKeybind, toggle: boolean)
@@ -48,7 +49,9 @@ end
 ---@param data KeybindProps
 ---@return CKeybind
 function lib.addKeybind(data)
+    ---@cast data CKeybind
     if not data.defaultKey then data.defaultKey = '' end
+    if not data.defaultMapper then data.defaultMapper = 'keyboard' end
 
     RegisterCommand('+' .. data.name, function()
         if not data.onPressed or data.disabled or IsPauseMenuActive() then return end
@@ -60,7 +63,7 @@ function lib.addKeybind(data)
         data:onReleased()
     end)
 
-    RegisterKeyMapping('+' .. data.name, data.description, 'keyboard', data.defaultKey)
+    RegisterKeyMapping('+' .. data.name, data.description, data.defaultMapper, data.defaultKey)
 
     SetTimeout(500, function()
         TriggerEvent('chat:removeSuggestion', ('/+%s'):format(data.name))
@@ -72,7 +75,7 @@ function lib.addKeybind(data)
     data.disable = disableKeybind
     keybinds[data.name] = setmetatable(data, keybind_mt)
 
-    return data --[[@as CKeybind]]
+    return data
 end
 
 return lib.addKeybind

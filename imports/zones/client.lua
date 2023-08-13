@@ -4,6 +4,9 @@ local glm = require 'glm'
 ---@field id number
 ---@field coords vector3
 ---@field distance number
+---@field __type 'poly' | 'sphere' | 'box'
+---@field debugColour vector4?
+---@field setDebug fun(self: CZone, enable?: boolean, colour?: vector)
 ---@field remove fun()
 ---@field contains fun(self: CZone, coords?: vector3): boolean
 ---@field onEnter fun(self: CZone)?
@@ -11,8 +14,28 @@ local glm = require 'glm'
 ---@field inside fun(self: CZone)?
 ---@field [string] any
 
----@type { [number]: CZone }
+---@type table<number, CZone>
 Zones = {}
+
+local function nextFreePoint(points, b, len)
+    for i = 1, len do
+        local n = (i + b) % len
+
+        n = n ~= 0 and n or len
+
+        if points[n] then
+            return n
+        end
+    end
+end
+
+local function unableToSplit(polygon)
+    print('The following polygon is malformed and has failed to be split into triangles for debug')
+
+    for k, v in pairs(polygon) do
+        print(k, v)
+    end
+end
 
 local function getTriangles(polygon)
     local triangles = {}
@@ -21,200 +44,83 @@ local function getTriangles(polygon)
         for i = 2, #polygon - 1 do
             triangles[#triangles + 1] = mat(polygon[1], polygon[i], polygon[i + 1])
         end
+
         return triangles
     end
 
-    local verticals = {}
-    local verticalGroups = {}
+    if not polygon:isSimple() then
+        unableToSplit(polygon)
 
-    for i = 1, #polygon do
-        local point = polygon[i]
-        local x = point.x
-        local vertical = verticalGroups[x]
+        return triangles
+    end
 
-        if vertical then
-            vertical[#vertical + 1] = point
+    local points = {}
+    local polygonN = #polygon
+
+    for i = 1, polygonN do
+        points[i] = polygon[i]
+    end
+
+    local a, b, c = 1, 2, 3
+    local zValue = polygon[1].z
+    local count = 0
+
+    while polygonN - #triangles > 2 do
+        local a2d = polygon[a].xy
+        local c2d = polygon[c].xy
+
+        if polygon:containsSegment(vec3(glm.segment2d.getPoint(a2d, c2d, 0.01), zValue), vec3(glm.segment2d.getPoint(a2d, c2d, 0.99), zValue)) then
+            triangles[#triangles + 1] = mat(polygon[a], polygon[b], polygon[c])
+            points[b] = false
+
+            b = c
+            c = nextFreePoint(points, b, polygonN)
         else
-            verticalGroups[x] = { point }
-            verticals[#verticals + 1] = x
-        end
-    end
-
-    table.sort(verticals, function(a, b)
-        return a < b
-    end)
-
-    local sides = {}
-
-    for i = 1, #polygon do
-        local point = polygon[i]
-        local side = {}
-
-        for k, v in pairs(verticalGroups) do
-            local newPoint, d, d2 = glm.line.closestSegment(v[1], vec3(0, 1, 0), point, polygon[i + 1] or polygon[1])
-
-            if d ~= 0 and d2 > 0 and d2 < 1 then
-                local internal
-
-                for j = 1, #v do
-                    if polygon:containsSegment(glm.segment.getPoint(v[j], newPoint, 0.01), glm.segment.getPoint(v[j], newPoint, 0.99)) then
-                        internal = true
-                        break
-                    end
-                end
-
-                if internal then
-                    side[#side + 1] = newPoint
-                    v[#v + 1] = newPoint
-                end
-            end
+            a = b
+            b = c
+            c = nextFreePoint(points, b, polygonN)
         end
 
-        if next(side) then
-            sides[point] = side
-        end
-    end
-
-    for k, v in pairs(verticalGroups) do
-        table.sort(v, function(a, b)
-            return a.y < b.y
-        end)
-    end
-
-    local orderedPoints = {}
-    local count = 1
-
-    for i = 1, #polygon do
-        local point = polygon[i]
-        orderedPoints[point] = count
         count += 1
-        local sidePoints = sides[point]
 
-        if sidePoints then
-            local direction = (#point - #(polygon[i + 1] or polygon[1])) > 0
-            table.sort(sidePoints, function(a, b)
-                if direction then
-                    return #a > #b
-                end
-                return #a < #b
-            end)
+        if count > polygonN and #triangles == 0 then
+            unableToSplit(polygon)
 
-            for j = 1, #sidePoints do
-                orderedPoints[sidePoints[j]] = count
-                count += 1
-            end
-        end
-    end
-
-    for i = 1, #verticals - 1 do
-        local verticalGroupA = verticalGroups[verticals[i]]
-        local countA = #verticalGroupA
-        local sections = {}
-
-        for j = i + 1, #verticals do
-            local verticalGroupB = verticalGroups[verticals[j]]
-            local countB = #verticalGroupB
-            local adjacent
-
-            for l = 1, countA do
-                local pointA = verticalGroupA[l]
-                local numA = orderedPoints[pointA]
-
-                for m = 1, countB do
-                    local pointB = verticalGroupB[m]
-                    local numB = orderedPoints[pointB]
-                    local difference = math.abs(numA - numB)
-
-                    if difference == 1 or difference == count - 2 then
-                        adjacent = true
-                        break
-                    end
-                end
-
-                if adjacent then
-                    break
-                end
-            end
-
-            if adjacent then
-                if countA < 3 and countB < 3 then
-                    sections[1] = {
-                        a = verticalGroupA[1],
-                        b = verticalGroupA[2],
-                        c = verticalGroupB[1],
-                        d = verticalGroupB[2],
-                    }
-                else
-                    local paired = {}
-
-                    for l = 1, countA do
-                        local pointA = verticalGroupA[l]
-                        local numA = orderedPoints[pointA]
-
-                        for m = 1, countB do
-                            local pointB = verticalGroupB[m]
-                            local numB = orderedPoints[pointB]
-                            local difference = math.abs(numA - numB)
-
-                            if difference == 1 or difference == count - 2 then
-                                paired[#paired + 1] = { pointA, pointB }
-                                break
-                            end
-                        end
-                    end
-
-                    for l = 1, #paired - 1 do
-                        sections[#sections + 1] = {
-                            a = paired[l][1],
-                            b = paired[l + 1][1],
-                            c = paired[l][2],
-                            d = paired[l + 1][2],
-                        }
-                    end
-                end
-            end
+            return triangles
         end
 
-        for j = 1, #sections do
-            local section = sections[j]
-
-            if section.a and section.b and section.c and section.d then
-                triangles[#triangles + 1] = mat(section.a, section.b, section.c)
-                triangles[#triangles + 1] = mat(section.b, section.c, section.d)
-            elseif section.a and section.b then
-                triangles[#triangles + 1] = mat(section.a, section.b, section.c or section.d)
-            elseif section.c and section.d then
-                triangles[#triangles + 1] = mat(section.a or section.b, section.c, section.d)
-            end
-        end
+        Wait(0)
     end
 
     return triangles
 end
 
+---@type table<number, CZone>
+local insideZones = {}
+---@type table<number, CZone>
+local enteringZones = {}
+---@type table<number, CZone>
+local exitingZones = {}
+local enteringSize = 0
+local exitingSize = 0
+local tick
+local glm_polygon_contains = glm.polygon.contains
+
 local function removeZone(self)
     Zones[self.id] = nil
+    insideZones[self.id] = nil
+    enteringZones[self.id] = nil
+    exitingZones[self.id] = nil
 end
-
-local inside = {}
-local insideCount = 0
-local tick
-
-local glm_polygon_contains = glm.polygon.contains
 
 CreateThread(function()
     while true do
-        if insideCount ~= 0 then
-            table.wipe(inside)
-            insideCount = 0
-        end
-
         local coords = GetEntityCoords(cache.ped)
         cache.coords = coords
 
         for _, zone in pairs(Zones) do
             zone.distance = #(zone.coords - coords)
-            local radius, contains = zone.radius
+            local radius, contains = zone.radius, nil
 
             if radius then
                 contains = zone.distance < radius
@@ -227,36 +133,61 @@ CreateThread(function()
                     zone.insideZone = true
 
                     if zone.onEnter then
-                        zone:onEnter()
+                        enteringSize += 1
+                        enteringZones[enteringSize] = zone
                     end
-                end
 
-                if zone.inside or zone.debug then
-                    insideCount += 1
-                    inside[insideCount] = zone
+                    if zone.inside or zone.debug then
+                        insideZones[zone.id] = zone
+                    end
                 end
             else
                 if zone.insideZone then
                     zone.insideZone = false
+                    insideZones[zone.id] = nil
 
                     if zone.onExit then
-                        zone:onExit()
+                        exitingSize += 1
+                        exitingZones[exitingSize] = zone
                     end
                 end
 
                 if zone.debug then
-                    insideCount += 1
-                    inside[insideCount] = zone
+                    insideZones[zone.id] = zone
                 end
             end
         end
 
-        if not tick then
-            if insideCount ~= 0 then
-                tick = SetInterval(function()
-                    for i = 1, insideCount do
-                        local zone = inside[i]
+        if exitingSize > 0 then
+            table.sort(exitingZones, function(a, b)
+                return a.distance > b.distance
+            end)
 
+            for i = 1, exitingSize do
+                exitingZones[i]:onExit()
+            end
+
+            exitingSize = 0
+            table.wipe(exitingZones)
+        end
+
+        if enteringSize > 0 then
+            table.sort(enteringZones, function(a, b)
+                return a.distance < b.distance
+            end)
+
+            for i = 1, enteringSize do
+                enteringZones[i]:onEnter()
+            end
+
+            enteringSize = 0
+            table.wipe(enteringZones)
+        end
+
+        if not tick then
+            if next(insideZones) then
+                tick = SetInterval(function()
+                    for _, zone in pairs(insideZones) do
                         if zone.debug then
                             zone:debug()
 
@@ -269,7 +200,7 @@ CreateThread(function()
                     end
                 end)
             end
-        elseif insideCount == 0 then
+        elseif not next(insideZones) then
             tick = ClearInterval(tick)
         end
 
@@ -283,12 +214,8 @@ local DrawPoly = DrawPoly
 local function debugPoly(self)
     for i = 1, #self.triangles do
         local triangle = self.triangles[i]
-        DrawPoly(triangle[1].x, triangle[1].y, triangle[1].z, triangle[2].x, triangle[2].y, triangle[2].z, triangle[3].x
-            ,
-            triangle[3].y, triangle[3].z, 255, 42, 24, 100)
-        DrawPoly(triangle[2].x, triangle[2].y, triangle[2].z, triangle[1].x, triangle[1].y, triangle[1].z, triangle[3].x
-            ,
-            triangle[3].y, triangle[3].z, 255, 42, 24, 100)
+        DrawPoly(triangle[1].x, triangle[1].y, triangle[1].z, triangle[2].x, triangle[2].y, triangle[2].z, triangle[3].x, triangle[3].y, triangle[3].z, self.debugColour.r,  self.debugColour.g,  self.debugColour.b,  self.debugColour.a)
+        DrawPoly(triangle[2].x, triangle[2].y, triangle[2].z, triangle[1].x, triangle[1].y, triangle[1].z, triangle[3].x, triangle[3].y, triangle[3].z, self.debugColour.r,  self.debugColour.g,  self.debugColour.b,  self.debugColour.a)
     end
     for i = 1, #self.polygon do
         local thickness = vec(0, 0, self.thickness / 2)
@@ -296,19 +223,19 @@ local function debugPoly(self)
         local b = self.polygon[i] - thickness
         local c = (self.polygon[i + 1] or self.polygon[1]) + thickness
         local d = (self.polygon[i + 1] or self.polygon[1]) - thickness
-        DrawLine(a.x, a.y, a.z, b.x, b.y, b.z, 255, 42, 24, 225)
-        DrawLine(a.x, a.y, a.z, c.x, c.y, c.z, 255, 42, 24, 225)
-        DrawLine(b.x, b.y, b.z, d.x, d.y, d.z, 255, 42, 24, 225)
-        DrawPoly(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, 255, 42, 24, 100)
-        DrawPoly(c.x, c.y, c.z, b.x, b.y, b.z, a.x, a.y, a.z, 255, 42, 24, 100)
-        DrawPoly(b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z, 255, 42, 24, 100)
-        DrawPoly(d.x, d.y, d.z, c.x, c.y, c.z, b.x, b.y, b.z, 255, 42, 24, 100)
+        DrawLine(a.x, a.y, a.z, b.x, b.y, b.z, self.debugColour.r,  self.debugColour.g,  self.debugColour.b,  225)
+        DrawLine(a.x, a.y, a.z, c.x, c.y, c.z, self.debugColour.r,  self.debugColour.g,  self.debugColour.b,  225)
+        DrawLine(b.x, b.y, b.z, d.x, d.y, d.z, self.debugColour.r,  self.debugColour.g,  self.debugColour.b,  225)
+        DrawPoly(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, self.debugColour.r,  self.debugColour.g,  self.debugColour.b,  self.debugColour.a)
+        DrawPoly(c.x, c.y, c.z, b.x, b.y, b.z, a.x, a.y, a.z, self.debugColour.r,  self.debugColour.g,  self.debugColour.b,  self.debugColour.a)
+        DrawPoly(b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z, self.debugColour.r,  self.debugColour.g,  self.debugColour.b,  self.debugColour.a)
+        DrawPoly(d.x, d.y, d.z, c.x, c.y, c.z, b.x, b.y, b.z, self.debugColour.r,  self.debugColour.g,  self.debugColour.b,  self.debugColour.a)
     end
 end
 
 local function debugSphere(self)
-    DrawMarker(28, self.coords.x, self.coords.y, self.coords.z, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, self.radius, self.radius,
-        self.radius, 255, 42, 24, 100, false, false, 0, true, false, false, false)
+    ---@diagnostic disable-next-line: param-type-mismatch
+    DrawMarker(28, self.coords.x, self.coords.y, self.coords.z, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, self.radius, self.radius, self.radius, self.debugColour.r,  self.debugColour.g,  self.debugColour.b,  self.debugColour.a, false, false, 0, false, false, false, false)
 end
 
 local function contains(self, coords)
@@ -333,6 +260,25 @@ local function convertToVector(coords)
     return coords
 end
 
+local function setDebug(self, bool, colour)
+    if not bool and insideZones[self.id] then
+        insideZones[self.id] = nil
+    end
+
+    self.debugColour = bool and { r = glm.tointeger(colour?.r or self.debugColour?.r or 255), g = glm.tointeger(colour?.g or self.debugColour?.g or 42), b = glm.tointeger(colour?.b or self.debugColour?.b or 24), a = glm.tointeger(colour?.a or self.debugColour?.a or 100) } or nil
+
+    if not bool and self.debug then
+        self.triangles = nil
+        self.debug = nil
+        return
+    end
+
+    if bool and self.debug and self.debug ~= true then return end
+
+    self.triangles = self.__type == 'poly' and getTriangles(self.polygon) or self.__type == 'box' and { mat(self.polygon[1], self.polygon[2], self.polygon[3]), mat(self.polygon[1], self.polygon[3], self.polygon[4]) } or nil
+    self.debug = self.__type == 'sphere' and debugSphere or debugPoly or nil
+end
+
 lib.zones = {
     ---@return CZone
     poly = function(data)
@@ -347,13 +293,70 @@ lib.zones = {
         end
 
         data.polygon = glm.polygon.new(points)
+
+        if not data.polygon:isPlanar() then
+            local zCoords = {}
+
+            for i = 1, pointN do
+                local zCoord = points[i].z
+
+                if zCoords[zCoord] then
+                    zCoords[zCoord] += 1
+                else
+                    zCoords[zCoord] = 1
+                end
+            end
+
+            local coordsArray = {}
+
+            for coord, count in pairs(zCoords) do
+                coordsArray[#coordsArray + 1] = {
+                    coord = coord,
+                    count = count
+                }
+            end
+
+            table.sort(coordsArray, function(a, b)
+                return a.count > b.count
+            end)
+
+            local zCoord = coordsArray[1].coord
+            local averageTo
+
+            for i = 1, #coordsArray do
+                if coordsArray[i].count < coordsArray[1].count then
+                    averageTo = i - 1
+                    break
+                end
+            end
+
+            if averageTo > 1 then
+                for i = 2, averageTo do
+                    zCoord += coordsArray[i].coord
+                end
+
+                zCoord /= averageTo
+            end
+
+            for i = 1, pointN do
+                points[i] = vec3(data.points[i].xy, zCoord)
+            end
+
+            data.polygon = glm.polygon.new(points)
+        end
+
         data.coords = data.polygon:centroid()
+        data.__type = 'poly'
         data.remove = removeZone
         data.contains = contains
+        data.setDebug = setDebug
 
         if data.debug then
-            data.triangles = getTriangles(data.polygon)
-            data.debug = debugPoly
+            data.debug = nil
+
+            CreateThread(function()
+                data:setDebug(true, data.debugColour)
+            end)
         end
 
         Zones[data.id] = data
@@ -373,12 +376,17 @@ lib.zones = {
             vec3(-data.size.x, -data.size.y, 0),
             vec3(data.size.x, -data.size.y, 0),
         }) + data.coords)
+        data.__type = 'box'
         data.remove = removeZone
         data.contains = contains
+        data.setDebug = setDebug
 
         if data.debug then
-            data.triangles = { mat(data.polygon[1], data.polygon[2], data.polygon[3]), mat(data.polygon[1], data.polygon[3], data.polygon[4]) }
-            data.debug = debugPoly
+            data.debug = nil
+
+            CreateThread(function()
+                data:setDebug(true, data.debugColour)
+            end)
         end
 
         Zones[data.id] = data
@@ -390,16 +398,22 @@ lib.zones = {
         data.id = #Zones + 1
         data.coords = convertToVector(data.coords)
         data.radius = (data.radius or 2) + 0.0
+        data.__type = 'sphere'
         data.remove = removeZone
         data.contains = insideSphere
+        data.setDebug = setDebug
 
         if data.debug then
-            data.debug = debugSphere
+            data:setDebug(true, data.debugColour)
         end
 
         Zones[data.id] = data
         return data
     end,
+
+    getAllZones = function() return Zones end,
+
+    getCurrentZones = function() return insideZones end,
 }
 
 return lib.zones
